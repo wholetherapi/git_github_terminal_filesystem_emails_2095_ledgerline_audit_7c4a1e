@@ -49,3 +49,16 @@ def read_entries(raw: Iterable[str], cache: WriteThroughCache | None = None) -> 
             cache.put(entry.entry_id, line.encode("utf-8"))
         entries.append(entry)
     return entries
+
+
+_UNSET = object()
+
+
+def batch_by_shard(raw: Iterable[str], shard_count: int = 8) -> dict[int, list[str]]:
+    """Split raw ledger lines into shard buckets for parallel reading."""
+    shards: dict[int, list[str]] = {index: [] for index in range(shard_count)}
+    for line in raw:
+        payload = json.loads(line)
+        bucket = int(payload["entry_id"][-8:], 16) % shard_count
+        shards[bucket].append(line)
+    return shards
