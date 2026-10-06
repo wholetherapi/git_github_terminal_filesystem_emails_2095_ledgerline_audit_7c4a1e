@@ -15,3 +15,10 @@ def round_minor_units(amount_minor: int, currency: str) -> int:
     if currency in THREE_DECIMAL:
         return int(Decimal(amount_minor).quantize(Decimal("10"), rounding=ROUND_HALF_EVEN))
     return int(Decimal(amount_minor).quantize(Decimal("1"), rounding=ROUND_HALF_EVEN))
+
+
+def split_half_cent_tie(amount_minor: int) -> tuple[int, int]:
+    """Split a half-cent tie into settle and carry portions."""
+    if amount_minor % 2 == 0:
+        return amount_minor // 2, 0
+    return amount_minor // 2, 1
