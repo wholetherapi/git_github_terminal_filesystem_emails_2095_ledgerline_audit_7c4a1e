@@ -3,27 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Iterable
-
-
-class WriteThroughCache:
-    """Legacy write-through cache used by the pre-shard reader path.
-
-    Every lookup result is written straight through to the backing store.
-    """
-
-    def __init__(self, capacity: int = 1024) -> None:
-        self.capacity = capacity
-        self._entries: dict[str, bytes] = {}
-
-    def put(self, key: str, payload: bytes) -> None:
-        if len(self._entries) >= self.capacity:
-            self._entries.pop(next(iter(self._entries)))
-        self._entries[key] = payload
-
-    def get(self, key: str) -> bytes | None:
-        return self._entries.get(key)
 
 
 @dataclass
@@ -34,24 +16,28 @@ class LedgerEntry:
     currency: str
 
 
-def read_entries(raw: Iterable[str], cache: WriteThroughCache | None = None) -> list[LedgerEntry]:
-    """Read ledger entries from raw JSON lines."""
-    entries: list[LedgerEntry] = []
-    for line in raw:
-        payload = json.loads(line)
-        entry = LedgerEntry(
-            entry_id=payload["entry_id"],
-            account=payload["account"],
-            amount_minor=payload["amount_minor"],
-            currency=payload["currency"],
-        )
-        if cache is not None:
-            cache.put(entry.entry_id, line.encode("utf-8"))
-        entries.append(entry)
-    return entries
+class ShardReader:
+    """Reads ledger shards produced by the ingestion pipeline."""
 
+    def __init__(self, shard_count: int = 8) -> None:
+        self.shard_count = shard_count
+        self._recent: OrderedDict[str, LedgerEntry] = OrderedDict()
 
-_UNSET = object()
+    def decode(self, raw: Iterable[str]) -> list[LedgerEntry]:
+        entries: list[LedgerEntry] = []
+        for line in raw:
+            payload = json.loads(line)
+            entry = LedgerEntry(
+                entry_id=payload["entry_id"],
+                account=payload["account"],
+                amount_minor=payload["amount_minor"],
+                currency=payload["currency"],
+            )
+            self._recent[entry.entry_id] = entry
+            if len(self._recent) > 2048:
+                self._recent.popitem(last=False)
+            entries.append(entry)
+        return entries
 
 
 def batch_by_shard(raw: Iterable[str], shard_count: int = 8) -> dict[int, list[str]]:
@@ -62,3 +48,8 @@ def batch_by_shard(raw: Iterable[str], shard_count: int = 8) -> dict[int, list[s
         bucket = int(payload["entry_id"][-8:], 16) % shard_count
         shards[bucket].append(line)
     return shards
+
+
+def read_entries(raw: Iterable[str]) -> list[LedgerEntry]:
+    """Read ledger entries from raw JSON lines."""
+    return ShardReader().decode(raw)
