@@ -2,7 +2,9 @@ stages:
   - lint
   - test
   - audit-export
+  - tag
 
 audit-export:
   command: python -m ledgerline.io.ledger_reader --export
   timeout: 300
+  retries: 2
